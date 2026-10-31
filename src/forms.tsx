@@ -44,7 +44,7 @@ export function StudentForm({ student, busy, save }: { student?: Student; busy: 
       <Col span={24}><Form.Item name="traits" label="学生特点"><Input.TextArea rows={3} maxLength={2000} placeholder="性格、学习习惯、沟通方式等（选填）" /></Form.Item></Col>
       <Col span={24}><Form.Item name="parent_requirements" label="家长要求"><Input.TextArea rows={3} maxLength={2000} placeholder="家长关注的问题和具体要求（选填）" /></Form.Item></Col>
       <Col span={24}><Form.Item name="school_context" label="学校情况"><Input.TextArea rows={3} maxLength={2000} placeholder="校内进度、老师要求、考试特点等（选填）" /></Form.Item></Col>
-      <Col span={24}><Form.Item name="notes" label="备注"><Input.TextArea rows={2} maxLength={2000} placeholder="其他需要记住的事项（选填）" /></Form.Item></Col>
+      <Col span={24}><Form.Item name="notes" label="备注"><Input.TextArea autoSize={{ minRows: 6, maxRows: 14 }} maxLength={2000} placeholder="其他需要记住的事项（选填）" /></Form.Item></Col>
     </Row>
     <footer className="form-footer"><Typography.Text type="secondary">保存后在你的设备间同步</Typography.Text><Button type="primary" htmlType="submit" loading={busy} disabled={busy} icon={<SaveOutlined />}>保存学生档案</Button></footer>
   </Form>;
