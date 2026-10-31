@@ -43,6 +43,9 @@ body { margin: 0; background: #f5f7fa; }
 .page-stack { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .section-actions { display: flex; justify-content: flex-end; margin-bottom: 16px; }
 .lesson-records, .student-record-tabs .ant-tabs-content-holder { min-width: 0; }
+@media (max-width: 767px) {
+  .lesson-records .ant-table-cell .ant-btn { min-height: 44px; height: auto; }
+}
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .page-heading .ant-typography { margin: 0; }
 .page-heading h2.ant-typography, .page-heading h3.ant-typography { margin-bottom: 6px; }
