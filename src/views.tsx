@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Dayjs } from 'dayjs';
 import {
-  AimOutlined, ArrowRightOutlined, CalendarOutlined, DeleteOutlined, EditOutlined, FileTextOutlined,
+  AimOutlined, ArrowRightOutlined, CalendarOutlined, EditOutlined, FileTextOutlined,
   PlusOutlined, SearchOutlined, TeamOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import {
-  Avatar, Button, Card, Checkbox, Col, DatePicker, Descriptions, Empty, Flex, Grid, Input,
-  Pagination, Popconfirm, Progress, Row, Select, Space, Statistic, Table, Tag, Typography,
+  Avatar, Button, Card, Checkbox, Col, Descriptions, Empty, Flex, Input,
+  Pagination, Popconfirm, Progress, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { displayDate, masteryCounts, monthPeriod, today } from './lib';
 import { STATUS_OPTIONS } from './types';
+import { LessonRecords } from './lesson-records';
+import type { LessonActions } from './lesson-records';
 import type { AppData, KnowledgePoint, Lesson, MasteryStatus, MonthlyReport, Student, StudentKnowledge } from './types';
 
 const { Title, Text, Paragraph } = Typography;
@@ -95,11 +96,12 @@ export function Dashboard({ data, openStudent, addStudent, addLesson, openLesson
 
 type KnowledgeRow = StudentKnowledge & { point: KnowledgePoint };
 
-export function StudentsView({ data, selectedId, selectStudent, category, changeCategory, addStudent, editStudent, addLesson, mastery, assign, insights, busy, archive }: {
+export function StudentsView({ data, selectedId, selectStudent, category, changeCategory, addStudent, editStudent, addLesson, openLesson, editLesson, removeLesson, mastery, assign, insights, busy, archive }: {
   data: AppData; selectedId: string; selectStudent: (id: string) => void; addStudent: () => void;
   category: 'active' | 'archived'; changeCategory: (category: 'active' | 'archived') => void;
   editStudent: (student: Student) => void; addLesson: () => void; mastery: (current?: StudentKnowledge) => void;
   assign: () => void; insights: () => void; busy: boolean; archive: (student: Student) => void;
+  openLesson: (lesson: Lesson) => void; editLesson: (lesson: Lesson) => void; removeLesson: (lesson: Lesson) => void;
 }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<MasteryStatus>();
@@ -140,22 +142,30 @@ export function StudentsView({ data, selectedId, selectStudent, category, change
           <Descriptions size="small" column={1} items={[
             { key: 'grade', label: '年级学科', children: `${selected.grade || '年级未填写'} · 数学` },
             { key: 'start', label: '开始日期', children: selected.start_date ? displayDate(selected.start_date) : '尚未填写' },
+            { key: 'school', label: '学校', children: <Text className="prewrap">{selected.school || '未填写'}</Text> },
             { key: 'goal', label: '学习目标', children: <Text style={{ whiteSpace: 'pre-wrap' }}>{selected.goal || '尚未填写学习目标'}</Text> },
+            { key: 'traits', label: '学生特点', children: <Text className="prewrap">{selected.traits || '未填写'}</Text> },
+            { key: 'parent_requirements', label: '家长要求', children: <Text className="prewrap">{selected.parent_requirements || '未填写'}</Text> },
+            { key: 'school_context', label: '学校情况', children: <Text className="prewrap">{selected.school_context || '未填写'}</Text> },
             ...(selected.notes ? [{ key: 'notes', label: '备注', children: <Text style={{ whiteSpace: 'pre-wrap' }}>{selected.notes}</Text> }] : []),
           ]} />
           <Space wrap style={{ marginTop: 16 }}>
-            <Button type="primary" icon={<PlusOutlined />} disabled={selected.archived || busy} onClick={addLesson}>记录课堂</Button>
+            <Button type="primary" icon={<PlusOutlined />} disabled={busy} onClick={addLesson}>记录课堂</Button>
             <Button icon={<ThunderboltOutlined />} loading={busy} onClick={insights}>AI 学情建议</Button>
             <Button type="text" danger={!selected.archived} disabled={busy} onClick={() => archive(selected)}>{selected.archived ? '恢复学生' : '归档学生'}</Button>
           </Space>
         </Card>
-        <Card title="知识掌握情况" extra={<Button icon={<PlusOutlined />} disabled={selected.archived || busy} onClick={() => mastery()}>关联知识点</Button>}>
+        <Card className="student-record-tabs"><Tabs defaultActiveKey="lessons" items={[
+          { key: 'lessons', label: '课堂记录', children: <LessonRecords key={selected.id} data={data} studentId={selected.id} add={addLesson} open={openLesson} edit={editLesson} remove={removeLesson} busy={busy} /> },
+          { key: 'knowledge', label: '知识掌握', children: <>
+          <div className="section-actions"><Button icon={<PlusOutlined />} disabled={selected.archived || busy} onClick={() => mastery()}>关联知识点</Button></div>
           <div className="filter-bar"><Select<MasteryStatus> aria-label="筛选掌握状态" placeholder="全部掌握状态" allowClear value={status} onChange={setStatus} options={[...STATUS_OPTIONS]} style={{ width: 176 }} />
             <Button type="link" disabled={busy || selected.archived || !selected.grade} onClick={assign}>关联本年级目录</Button><Text type="secondary">{rows.length} 项知识记录</Text>
           </div>
           <Table<KnowledgeRow> key={`${selected.id}:${status ?? 'all'}`} rowKey="id" columns={columns} dataSource={rows} size="small" pagination={pagination} scroll={{ x: 720 }}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={status ? '没有这个状态的知识点' : '从共用目录关联知识点，开始记录掌握情况。'} /> }} />
-        </Card>
+          </> },
+        ]} /></Card>
       </div> : <Card><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={category === 'active' ? '添加在读学生，开始记录档案与掌握情况。' : '暂无已归档学生。'}>
         {category === 'active' && <Button type="primary" disabled={busy} onClick={addStudent}>添加学生</Button>}
       </Empty></Card>}</Col>
@@ -163,41 +173,10 @@ export function StudentsView({ data, selectedId, selectStudent, category, change
   </div>;
 }
 
-export function LessonsView({ data, add, open, edit, remove, busy }: {
-  data: AppData; add: () => void; open: (lesson: Lesson) => void; edit: (lesson: Lesson) => void;
-  remove: (lesson: Lesson) => void; busy: boolean;
-}) {
-  const screens = Grid.useBreakpoint();
-  const [student, setStudent] = useState<string>();
-  const [month, setMonth] = useState<Dayjs | null>(null);
-  const [search, setSearch] = useState('');
-  const monthString = month?.format('YYYY-MM');
-  const rows = data.lessons.filter(lesson => (!student || lesson.student_id === student) && (!monthString || lesson.lesson_date.startsWith(monthString)) && `${lesson.content}${lesson.problems}`.includes(search.trim()));
-  const filtered = Boolean(student || month || search);
-  const canAdd = data.students.some(item => !item.archived);
-  const columns: TableColumnsType<Lesson> = [
-    { title: '课堂日期', dataIndex: 'lesson_date', width: 120, render: displayDate, sorter: (a, b) => a.lesson_date.localeCompare(b.lesson_date), defaultSortOrder: 'descend' },
-    { title: '学生', width: 120, render: (_, lesson) => data.students.find(item => item.id === lesson.student_id)?.name ?? '学生记录' },
-    { title: '课堂内容', dataIndex: 'content', width: 260, render: value => <Paragraph ellipsis={{ rows: 3, tooltip: value }} style={{ margin: 0 }}>{value}</Paragraph> },
-    { title: '课堂问题', dataIndex: 'problems', width: 220, render: value => <Paragraph ellipsis={{ rows: 3, tooltip: value }} style={{ margin: 0 }}>{value || '—'}</Paragraph> },
-    { title: '课后反馈', width: 112, render: (_, lesson) => <Tag color={lesson.feedback ? 'success' : 'default'}>{lesson.feedback ? '已有反馈' : '待整理'}</Tag> },
-    { title: '操作', width: screens.md ? 260 : 150, fixed: 'right', render: (_, lesson) => <Space orientation={screens.md ? 'horizontal' : 'vertical'} size={0}>
-      <Button type="link" size="small" icon={<EditOutlined />} disabled={busy} onClick={() => edit(lesson)}>编辑</Button>
-      <Button type="link" size="small" disabled={busy} onClick={() => open(lesson)}>查看 / 整理反馈</Button>
-      <Button type="link" danger size="small" icon={<DeleteOutlined />} disabled={busy} onClick={() => remove(lesson)}>删除</Button>
-    </Space> },
-  ];
+export function LessonsView({ data, ...actions }: LessonActions & { data: AppData }) {
   return <div className="page-stack">
-    <ViewHeading title="课堂记录" description="记录课堂事实，再整理为清楚的课后反馈。" action={<Button type="primary" icon={<PlusOutlined />} disabled={!canAdd || busy} onClick={add}>记录课堂</Button>} />
-    <Card><div className="filter-bar">
-      <Select aria-label="按学生筛选课堂" placeholder="全部学生" showSearch optionFilterProp="label" allowClear value={student} onChange={setStudent} options={studentOptions(data.students)} style={{ width: 180 }} />
-      <DatePicker picker="month" aria-label="按月份筛选课堂" placeholder="全部月份" value={month} onChange={setMonth} style={{ width: 160 }} />
-      <Input prefix={<SearchOutlined />} aria-label="搜索课堂内容" placeholder="搜索内容或问题" value={search} allowClear onChange={event => setSearch(event.target.value)} style={{ width: 260, maxWidth: '100%' }} />
-      {filtered && <Button type="link" onClick={() => { setStudent(undefined); setMonth(null); setSearch(''); }}>清除筛选</Button>}
-    </div>
-      <Table<Lesson> key={`${student ?? ''}:${monthString ?? ''}:${search}`} rowKey="id" columns={columns} dataSource={rows} size="small" pagination={pagination} scroll={{ x: 1090 }}
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={filtered ? '没有匹配的课堂记录，请调整筛选条件。' : '还没有课堂记录。'}>{!filtered && <Button type="primary" disabled={!canAdd || busy} onClick={add}>记录课堂</Button>}</Empty> }} />
-    </Card>
+    <ViewHeading title="课堂记录" description="记录课堂事实，再整理为清楚的课后反馈。" action={<Button type="primary" icon={<PlusOutlined />} disabled={!data.students.some(item => !item.archived) || actions.busy} onClick={actions.add}>记录课堂</Button>} />
+    <Card><LessonRecords data={data} {...actions} /></Card>
   </div>;
 }
 

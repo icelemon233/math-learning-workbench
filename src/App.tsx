@@ -14,6 +14,7 @@ import { APP_NAME, displayDate, errorMessage, today } from './lib';
 import { exportReportDocx, printReport } from './export-report';
 import { useWorkspace } from './use-workspace';
 import { ThemeButton } from './theme';
+import { ARCHIVED_LESSON_MESSAGE } from './lesson-policy';
 import type { KnowledgePoint, Lesson, MonthlyReport, Student, StudentKnowledge } from './types';
 
 const { Header, Sider, Content, Footer } = Layout;
@@ -31,7 +32,7 @@ const StudentForm = lazy(() => import('./forms').then(module => ({ default: modu
 const FeedbackEditor = lazy(() => import('./feedback').then(module => ({ default: module.FeedbackEditor })));
 type View = 'dashboard' | 'students' | 'lessons' | 'knowledge' | 'reports';
 type Modal = { type: 'student'; student?: Student } | { type: 'knowledge'; point?: KnowledgePoint }
-  | { type: 'lesson'; lesson?: Lesson } | { type: 'lesson-delete'; lesson: Lesson } | { type: 'mastery'; studentId: string; current?: StudentKnowledge }
+  | { type: 'lesson'; lesson?: Lesson; studentId?: string; lockedStudentId?: string; returnTo: 'students' | 'lessons' } | { type: 'lesson-delete'; lesson: Lesson } | { type: 'mastery'; studentId: string; current?: StudentKnowledge }
   | { type: 'feedback'; lesson: Lesson } | { type: 'report' } | { type: 'report-view'; report: MonthlyReport }
   | { type: 'insights'; name: string; content: string; suggestions: string[] };
 type Run = (action: () => Promise<unknown>, message?: string, refresh?: boolean) => Promise<boolean>;
@@ -84,7 +85,26 @@ export default function App() {
     } finally { operationPending.current = false; setBusy(false); }
   };
   const addStudent = () => open({ type: 'student' });
-  const addLesson = () => open({ type: 'lesson' });
+  const archivedLessonBlocked = (studentId: string) => {
+    if (!data.students.find(student => student.id === studentId)?.archived) return false;
+    void messageApi.open({ key: 'archived-lesson', type: 'warning', content: ARCHIVED_LESSON_MESSAGE, duration: 6 });
+    return true;
+  };
+  const addLesson = () => {
+    if (view === 'students' && currentStudent) {
+      if (archivedLessonBlocked(currentStudent.id)) return;
+      setSelectedId(currentStudent.id);
+      open({ type: 'lesson', studentId: currentStudent.id, lockedStudentId: currentStudent.id, returnTo: 'students' });
+    } else {
+      open({ type: 'lesson', studentId: currentStudent && !currentStudent.archived ? currentStudent.id : undefined, returnTo: 'lessons' });
+    }
+  };
+  const editLesson = (lesson: Lesson) => {
+    if (archivedLessonBlocked(lesson.student_id)) return;
+    setSelectedId(lesson.student_id);
+    open({ type: 'lesson', lesson, returnTo: view === 'students' ? 'students' : 'lessons' });
+  };
+  const removeLesson = (lesson: Lesson) => open({ type: 'lesson-delete', lesson });
   const newReport = () => open({ type: 'report' });
   const openStudent = (id: string) => { setSelectedId(id); setStudentCategory(data.students.find(student => student.id === id)?.archived ? 'archived' : 'active'); setView('students'); };
   const openFeedback = (lesson: Lesson) => { setSelectedId(lesson.student_id); open({ type: 'feedback', lesson }); };
@@ -147,6 +167,7 @@ export default function App() {
         {view === 'students' && <StudentsView data={data} selectedId={currentStudent?.id ?? ''} selectStudent={setSelectedId}
           category={studentCategory} changeCategory={setStudentCategory}
           addStudent={addStudent} editStudent={student => open({ type: 'student', student })} addLesson={addLesson}
+          openLesson={openFeedback} editLesson={editLesson} removeLesson={removeLesson}
           mastery={current => { if (currentStudent) { setSelectedId(currentStudent.id); open({ type: 'mastery', studentId: currentStudent.id, current }); } }} busy={busy}
           assign={() => { if (currentStudent) void run(() => assignPoints(currentStudent.id, data.knowledgePoints.filter(point => !point.archived && point.grade === currentStudent.grade)), '已关联年级目录，已有掌握记录保持原值'); }}
           insights={() => { if (currentStudent) void run(async () => {
@@ -155,8 +176,7 @@ export default function App() {
           }, 'AI 建议已生成', false); }}
           archive={student => { void run(() => saveStudent({ id: student.id, archived: !student.archived }), student.archived ? '已恢复学生' : '已归档，历史记录保留'); }} />}
         {view === 'lessons' && <LessonsView data={data} add={addLesson} open={openFeedback} busy={busy}
-          remove={lesson => open({ type: 'lesson-delete', lesson })}
-          edit={lesson => { setSelectedId(lesson.student_id); open({ type: 'lesson', lesson }); }} />}
+          remove={removeLesson} edit={editLesson} />}
         {view === 'knowledge' && <KnowledgeView data={data} add={() => open({ type: 'knowledge' })} edit={point => open({ type: 'knowledge', point })}
           archive={point => { void run(() => point.archived ? restoreKnowledgeOption(point) : deleteKnowledgeOption(point), point.archived ? '已恢复知识点选项' : '知识点已从选项中删除，已有记录保留'); }} />}
         {view === 'reports' && <ReportsView data={data} add={newReport} open={report => open({ type: 'report-view', report })} />}
@@ -184,8 +204,14 @@ export default function App() {
           return ok ? removed : null;
         }}
         current={modal.current} busy={busy || masteryStudent.archived} save={(id, status, note, baseline) => { void run(() => saveMastery(masteryStudent.id, id, status, note, baseline)).then(ok => { if (ok) close(); }); }} />}
-      {modal.type === 'lesson' && <LessonForm data={data} studentId={currentStudent?.id} lesson={modal.lesson} busy={busy} save={(value, versions) => {
-        void run(async () => { const saved = await saveLesson(value, versions); setSelectedId(saved.student_id); setView('lessons'); }).then(ok => { if (ok) close(); });
+      {modal.type === 'lesson' && <LessonForm data={data} studentId={modal.studentId} lockedStudentId={modal.lockedStudentId} lesson={modal.lesson} busy={busy} save={(value, versions) => {
+        if (value.student_id && archivedLessonBlocked(value.student_id)) return;
+        void run(async () => {
+          if (modal.lockedStudentId && value.student_id !== modal.lockedStudentId) throw new Error('课堂所属学生发生变化，请关闭后重试。');
+          const saved = await saveLesson(value, versions); setSelectedId(saved.student_id);
+          if (modal.returnTo === 'students') setStudentCategory('active');
+          setView(modal.returnTo);
+        }).then(ok => { if (ok) close(); });
       }} />}
       {modal.type === 'lesson-delete' && <div className="page-stack">
         <Alert type="warning" showIcon title="删除后无法恢复" description="本节课的课堂记录和已保存的课后反馈将一并删除。" />
@@ -203,7 +229,8 @@ export default function App() {
         </div>
       </div>}
       {modal.type === 'feedback' && <FeedbackEditor lesson={data.lessons.find(lesson => lesson.id === modal.lesson.id) ?? modal.lesson}
-        studentName={data.students.find(student => student.id === modal.lesson.student_id)?.name ?? ''} busy={busy} run={run} />}
+        studentName={data.students.find(student => student.id === modal.lesson.student_id)?.name ?? ''}
+        readOnly={data.students.find(student => student.id === modal.lesson.student_id)?.archived ?? true} busy={busy} run={run} />}
       {modal.type === 'report' && <ReportForm data={data} studentId={currentStudent?.id} busy={busy} error={modalError}
         save={(id, start, end, content, context) => { void run(async () => {
           const report = content ? await saveMonthlyReport(id, start, end, content)

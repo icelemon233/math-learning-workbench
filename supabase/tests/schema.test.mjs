@@ -51,6 +51,9 @@ try {
   const deletionUpgrade = await fs.readFile(new URL('../lesson-deletion.sql', import.meta.url), 'utf8');
   await db.exec(deletionUpgrade);
   await db.exec(deletionUpgrade); // The reviewed upgrade is safe to reapply.
+  const profileMigration = (await fs.readdir(new URL('../migrations/', import.meta.url))).find(name => name.endsWith('_student_profile_details.sql'));
+  if (!profileMigration) throw new Error('Student profile migration is missing');
+  await db.exec(await fs.readFile(new URL('../migrations/' + profileMigration, import.meta.url), 'utf8'));
   await db.query('insert into auth.users(id) values ($1::uuid),($2::uuid)', [owner, other]);
   await db.query('insert into public.app_owner(singleton,owner_id) values(true,$1::uuid)', [owner]);
   check((await one("select count(*)::int as n from pg_class where relnamespace='public'::regnamespace and relkind='r' and relrowsecurity")).n === 6, 'all public tables have RLS');

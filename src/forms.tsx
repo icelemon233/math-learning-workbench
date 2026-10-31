@@ -7,6 +7,7 @@ import type { Dayjs } from 'dayjs';
 import { monthPeriod, today, validatePeriod } from './lib';
 import { STATUS_OPTIONS } from './types';
 import { KnowledgePicker } from './knowledge-picker';
+import { ARCHIVED_LESSON_MESSAGE } from './lesson-policy';
 import type { KnowledgeOptionActions } from './knowledge-picker';
 import type { AppData, KnowledgePoint, KnowledgeUpdate, Lesson, MasteryStatus, ReportContent, Student, StudentKnowledge } from './types';
 
@@ -25,18 +26,24 @@ function GradeInput(props: AutoCompleteProps) {
   </AutoComplete>;
 }
 
-type StudentValues = { name: string; grade: string; start_date?: Dayjs | null; goal?: string; notes?: string };
+type StudentValues = { name: string; grade: string; start_date?: Dayjs | null; goal?: string; notes?: string; school?: string; traits?: string; parent_requirements?: string; school_context?: string };
 export function StudentForm({ student, busy, save }: { student?: Student; busy: boolean; save: (value: Partial<Student>) => void }) {
   const onFinish = (values: StudentValues) => {
     if (busy) return;
-    save({ ...(student ? { id: student.id } : {}), name: trim(values.name), grade: trim(values.grade), start_date: dateText(values.start_date) || null, goal: trim(values.goal), notes: trim(values.notes) });
+    save({ ...(student ? { id: student.id } : {}), name: trim(values.name), grade: trim(values.grade), start_date: dateText(values.start_date) || null, goal: trim(values.goal), notes: trim(values.notes),
+      school: trim(values.school), traits: trim(values.traits), parent_requirements: trim(values.parent_requirements), school_context: trim(values.school_context) });
   };
-  return <Form<StudentValues> name="student" layout="vertical" disabled={busy} onFinish={onFinish} scrollToFirstError initialValues={{ name: student?.name ?? '', grade: student?.grade ?? '', start_date: dateValue(student?.start_date), goal: student?.goal ?? '', notes: student?.notes ?? '' }}>
+  return <Form<StudentValues> name="student" layout="vertical" disabled={busy} onFinish={onFinish} scrollToFirstError initialValues={{ name: student?.name ?? '', grade: student?.grade ?? '', start_date: dateValue(student?.start_date), goal: student?.goal ?? '', notes: student?.notes ?? '',
+    school: student?.school ?? '', traits: student?.traits ?? '', parent_requirements: student?.parent_requirements ?? '', school_context: student?.school_context ?? '' }}>
     <Row gutter={[20, 0]}>
       <Col xs={24} sm={12}><Form.Item name="name" label="学生姓名" rules={requiredText('学生姓名')}><Input maxLength={60} placeholder="填写姓名" /></Form.Item></Col>
       <Col xs={24} sm={12}><Form.Item name="grade" label="年级" rules={requiredText('年级')}><GradeInput /></Form.Item></Col>
       <Col xs={24} sm={12}><Form.Item name="start_date" label="开始学习日期"><DatePicker format={DATE_FORMAT} style={{ width: '100%' }} /></Form.Item></Col>
+      <Col xs={24} sm={12}><Form.Item name="school" label="学校"><Input maxLength={120} placeholder="学校名称（选填）" /></Form.Item></Col>
       <Col span={24}><Form.Item name="goal" label="学习目标"><Input.TextArea rows={3} maxLength={2000} placeholder="希望解决哪些问题，达到什么目标" /></Form.Item></Col>
+      <Col span={24}><Form.Item name="traits" label="学生特点"><Input.TextArea rows={3} maxLength={2000} placeholder="性格、学习习惯、沟通方式等（选填）" /></Form.Item></Col>
+      <Col span={24}><Form.Item name="parent_requirements" label="家长要求"><Input.TextArea rows={3} maxLength={2000} placeholder="家长关注的问题和具体要求（选填）" /></Form.Item></Col>
+      <Col span={24}><Form.Item name="school_context" label="学校情况"><Input.TextArea rows={3} maxLength={2000} placeholder="校内进度、老师要求、考试特点等（选填）" /></Form.Item></Col>
       <Col span={24}><Form.Item name="notes" label="备注"><Input.TextArea rows={2} maxLength={2000} placeholder="其他需要记住的事项（选填）" /></Form.Item></Col>
     </Row>
     <footer className="form-footer"><Typography.Text type="secondary">保存后在你的设备间同步</Typography.Text><Button type="primary" htmlType="submit" loading={busy} disabled={busy} icon={<SaveOutlined />}>保存学生档案</Button></footer>
@@ -92,31 +99,34 @@ export function MasteryForm({ student, points, assignments, current, busy, save,
 }
 
 type LessonValues = { student: string; lesson_date: Dayjs; content: string; performance?: string; problems?: string; homework_completion?: string; homework?: string; next_plan?: string };
-export function LessonForm({ data, studentId, lesson, busy, save }: { data: AppData; studentId?: string; lesson?: Lesson; busy: boolean; save: (value: Partial<Lesson> & { knowledge_updates: KnowledgeUpdate[] }, versions: Record<string, string | null>) => void }) {
-  const [selected, setSelected] = useState(lesson?.student_id ?? studentId ?? data.students.find(student => !student.archived)?.id ?? '');
+export function LessonForm({ data, studentId, lockedStudentId, lesson, busy, save }: { data: AppData; studentId?: string; lockedStudentId?: string; lesson?: Lesson; busy: boolean; save: (value: Partial<Lesson> & { knowledge_updates: KnowledgeUpdate[] }, versions: Record<string, string | null>) => void }) {
+  const [lockedId] = useState(lesson?.student_id ?? lockedStudentId);
+  const [selected, setSelected] = useState(lockedId ?? studentId ?? data.students.find(student => !student.archived)?.id ?? '');
   const [lessonBaseline] = useState(() => lesson ? { id: lesson.id, updated_at: lesson.updated_at } : undefined);
   const [updates, setUpdates] = useState<Record<string, MasteryStatus>>({});
   const [baselines, setBaselines] = useState<Record<string, string | null>>({});
   const student = data.students.find(item => item.id === selected);
+  const readOnly = !student || student.archived;
   const assigned = new Set(data.studentKnowledge.filter(item => item.student_id === selected).map(item => item.knowledge_point_id));
   const points = data.knowledgePoints.filter(point => !point.archived && (assigned.has(point.id) || (!!student?.grade && point.grade === student.grade)));
   const onFinish = (values: LessonValues) => {
-    if (busy) return;
+    if (busy || readOnly) return;
     const problems = trim(values.problems), content = trim(values.content);
     const knowledge_updates: KnowledgeUpdate[] = Object.entries(updates).map(([id, status]) => ({ knowledge_point_id: id, status, note: problems || content }));
     const versions = Object.fromEntries(knowledge_updates.map(update => [update.knowledge_point_id, baselines[update.knowledge_point_id]]));
-    save({ ...lessonBaseline, student_id: trim(values.student), lesson_date: dateText(values.lesson_date), content, performance: trim(values.performance), problems, homework_completion: trim(values.homework_completion), homework: trim(values.homework), next_plan: trim(values.next_plan), knowledge_updates }, versions);
+    save({ ...lessonBaseline, student_id: lockedId ?? trim(values.student), lesson_date: dateText(values.lesson_date), content, performance: trim(values.performance), problems, homework_completion: trim(values.homework_completion), homework: trim(values.homework), next_plan: trim(values.next_plan), knowledge_updates }, versions);
   };
   const changeStudent = (id: string) => { setSelected(id); setUpdates({}); setBaselines({}); };
   const toggleKnowledge = (id: string, checked: boolean, current?: StudentKnowledge) => {
-    if (busy) return;
+    if (busy || readOnly) return;
     // Capture the current cloud version when checked, never during later renders.
     setBaselines(previous => { const next = { ...previous }; if (checked) next[id] = current?.updated_at ?? null; else delete next[id]; return next; });
     setUpdates(previous => { const next = { ...previous }; if (checked) next[id] = current?.status ?? 'pending'; else delete next[id]; return next; });
   };
-  return <Form<LessonValues> name="lesson" layout="vertical" disabled={busy} onFinish={onFinish} scrollToFirstError initialValues={{ student: selected, lesson_date: dateValue(lesson?.lesson_date ?? today()), content: lesson?.content ?? '', performance: lesson?.performance ?? '', problems: lesson?.problems ?? '', homework_completion: lesson?.homework_completion ?? '', homework: lesson?.homework ?? '', next_plan: lesson?.next_plan ?? '' }}>
+  return <Form<LessonValues> name="lesson" layout="vertical" disabled={busy || readOnly} onFinish={onFinish} scrollToFirstError initialValues={{ student: selected, lesson_date: dateValue(lesson?.lesson_date ?? today()), content: lesson?.content ?? '', performance: lesson?.performance ?? '', problems: lesson?.problems ?? '', homework_completion: lesson?.homework_completion ?? '', homework: lesson?.homework ?? '', next_plan: lesson?.next_plan ?? '' }}>
+    {readOnly && <Alert type="warning" showIcon title={student?.archived ? ARCHIVED_LESSON_MESSAGE : '学生记录已不可用，请关闭后刷新。'} style={{ marginBottom: 16 }} />}
     <Row gutter={[20, 0]}>
-      <Col xs={24} sm={12}><Form.Item name="student" label="学生" rules={requiredChoice('学生')}><Select showSearch optionFilterProp="label" disabled={busy || !!lessonBaseline} placeholder="选择学生" onChange={changeStudent} options={data.students.filter(item => !item.archived || item.id === selected).map(item => ({ value: item.id, label: `${item.name} · ${item.grade || '年级未填写'}` }))} /></Form.Item></Col>
+      <Col xs={24} sm={12}><Form.Item name="student" label="学生" rules={requiredChoice('学生')} extra={lockedStudentId && !lesson ? '当前课堂固定记录在这位学生名下。' : undefined}><Select showSearch optionFilterProp="label" disabled={busy || !!lockedId} placeholder="选择学生" onChange={changeStudent} options={data.students.filter(item => !item.archived || item.id === selected).map(item => ({ value: item.id, label: `${item.name} · ${item.grade || '年级未填写'}` }))} /></Form.Item></Col>
       <Col xs={24} sm={12}><Form.Item name="lesson_date" label="上课日期" rules={requiredChoice('上课日期')}><DatePicker format={DATE_FORMAT} style={{ width: '100%' }} /></Form.Item></Col>
       <Col span={24}><Form.Item name="content" label="本节课内容" rules={requiredText('本节课内容')} extra="可直接写关键词、口语或零散笔记，保存后用 AI 整理为课后反馈。"><Input.TextArea rows={3} maxLength={4000} placeholder="今天讲了什么、复习或练习了哪些知识点，不必提前整理格式" /></Form.Item></Col>
       <Col xs={24} sm={12}><Form.Item name="performance" label="课堂表现"><Input.TextArea rows={2} maxLength={2000} placeholder="状态、专注、互动与做得好的地方" /></Form.Item></Col>
@@ -131,12 +141,12 @@ export function LessonForm({ data, studentId, lesson, busy, save }: { data: AppD
       {points.length ? <div className="knowledge-checks">{points.map(point => {
         const current = data.studentKnowledge.find(item => item.student_id === selected && item.knowledge_point_id === point.id);
         return <div className="knowledge-check" key={point.id}>
-          <Checkbox disabled={busy} checked={point.id in updates} onChange={event => toggleKnowledge(point.id, event.target.checked, current)}><span>{point.title}<Typography.Text type="secondary" style={{ display: 'block' }}>{point.chapter}</Typography.Text></span></Checkbox>
-          {point.id in updates && <Select aria-label={`${point.title}掌握情况`} disabled={busy} value={updates[point.id]} onChange={(status: MasteryStatus) => setUpdates(previous => ({ ...previous, [point.id]: status }))} options={statusOptions} style={{ minWidth: 112 }} />}
+          <Checkbox disabled={busy || readOnly} checked={point.id in updates} onChange={event => toggleKnowledge(point.id, event.target.checked, current)}><span>{point.title}<Typography.Text type="secondary" style={{ display: 'block' }}>{point.chapter}</Typography.Text></span></Checkbox>
+          {point.id in updates && <Select aria-label={`${point.title}掌握情况`} disabled={busy || readOnly} value={updates[point.id]} onChange={(status: MasteryStatus) => setUpdates(previous => ({ ...previous, [point.id]: status }))} options={statusOptions} style={{ minWidth: 112 }} />}
         </div>;
       })}</div> : <Typography.Paragraph type="secondary">还没有适用知识点，可先保存课堂记录，之后维护知识目录。</Typography.Paragraph>}
     </section>
-    <footer className="form-footer"><Typography.Text type="secondary">保存事实记录后，可单独生成课后反馈</Typography.Text><Button type="primary" htmlType="submit" loading={busy} disabled={busy} icon={<SaveOutlined />}>保存课堂记录</Button></footer>
+    <footer className="form-footer"><Typography.Text type="secondary">保存事实记录后，可单独生成课后反馈</Typography.Text><Button type="primary" htmlType="submit" loading={busy} disabled={busy || readOnly} icon={<SaveOutlined />}>保存课堂记录</Button></footer>
   </Form>;
 }
 

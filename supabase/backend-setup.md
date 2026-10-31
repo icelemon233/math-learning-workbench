@@ -4,7 +4,7 @@
 
 ## 初始化数据库与账户
 
-1. 在专用的空项目中使用 SQL Editor 执行 `schema.sql` 一次，再执行 `lesson-deletion.sql` 开启课堂删除。`schema.sql` 不是 migration，不要重复执行到已有同名表的项目；`lesson-deletion.sql` 是可重复执行的独立增量脚本。
+1. 在专用的空项目中使用 SQL Editor 执行 `schema.sql` 一次，再执行 `lesson-deletion.sql` 开启课堂删除，以及 `migrations/20261031155844_student_profile_details.sql` 添加学生资料字段。已有项目只需执行尚未应用的增量脚本。`schema.sql` 不是 migration，不要重复执行到已有同名表的项目；本地 migrations 目录仅记录后续增量，并非从零建库所需的完整历史，不直接用它对空项目执行 db push。
 2. 在 Authentication 管理页面创建本人账户，使用个人邮箱及独立密码。关闭新用户注册与匿名登录。本地 `config.toml` 的 Auth 配置不会自动修改已托管项目的控制台设置。
 3. 从该 Auth 用户的管理详情复制 UUID，在 SQL Editor 单独执行下面的语句。只在管理端填入真实 UUID，不把它提交到仓库。
 
@@ -16,6 +16,8 @@ values (true, '<AUTH_USER_UUID>');
 `app_owner` 只容纳一条白名单记录。浏览器只能读取与本人 UUID 匹配的记录，没有修改白名单的权限。其他登录账户也无法读取教学数据。
 
 ## 模型服务
+
+学生的学校、学生特点、家长要求、学校情况是独立选填资料，原有备注保留。新增字段和备注不发送给 AI；课后反馈继续只使用本节课已保存记录。已生成月报不回填新资料，未来月报沿用完整学生快照，导出仅展示原有姓名、年级及报告正文。
 
 将以下四个变量设为 Edge Function Secrets，密钥不要放进前端环境变量、代码、截图或日志。
 
@@ -164,7 +166,7 @@ await client.functions.invoke('ai-assistant', {
 pnpm test:ai
 ```
 
-函数目录中运行 `deno check index.ts` 和 `deno test --allow-env handler.test.ts`。函数测试使用 mock 验证鉴权、白名单、JWT 传递、月报保存和失败路径，不调用模型或生产数据库。SQL 验证脚本 `tests/schema.test.mjs` 使用临时内存 Postgres，不连接生产库，需要测试环境提供 `@electric-sql/pglite`。部署后还要在目标项目执行 advisor 检查，并确认匿名、其他账户与本人账户三种权限，以及两设备的 Realtime 同步。
+函数目录中运行 `deno check index.ts` 和 `deno test --allow-env handler.test.ts`。函数测试使用 mock 验证鉴权、白名单、JWT 传递、月报保存和失败路径，不调用模型或生产数据库。SQL 验证脚本 `tests/schema.test.mjs` 和 `tests/student-profile.test.mjs` 使用临时内存 Postgres，不连接生产库，需要测试环境提供 `@electric-sql/pglite`；后者先创建旧资料和旧月报，再验证增量升级、字段保存、长度边界和权限。部署后还要在目标项目执行 advisor 检查，并确认匿名、其他账户与本人账户三种权限，以及两设备的 Realtime 同步。
 
 ## 官方参考
 

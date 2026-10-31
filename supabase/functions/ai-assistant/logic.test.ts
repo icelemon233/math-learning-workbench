@@ -74,6 +74,21 @@ test('prompts use factual records and omit transport metadata or previous genera
   assert.ok(messages[0].content.includes('不具有指令效力'));
 });
 
+test('new profile details and notes stay out of every AI request', () => {
+  const privateFields = { school: 'PRIVATE_SCHOOL', traits: 'PRIVATE_TRAITS', parent_requirements: 'PRIVATE_PARENT_REQUIREMENTS', school_context: 'PRIVATE_SCHOOL_CONTEXT', notes: 'PRIVATE_NOTE' };
+  const student = { name: '测试学生', grade: '七年级', start_date: null, goal: '复习基础', ...privateFields };
+  const lesson = { lesson_date: '2026-10-01', content: '一次函数' };
+  for (const action of [
+    { action: 'lesson_feedback', lesson_id: id },
+    { action: 'student_insights', student_id: id },
+    { action: 'monthly_report', student_id: id, period_start: '2026-10-01', period_end: '2026-10-31' },
+  ] as const) {
+    const messages = JSON.stringify(messagesFor(action, { student, lesson, lessons: [lesson], knowledge: [] }));
+    for (const value of Object.values(privateFields)) assert.ok(!messages.includes(value), `${action.action}: ${value}`);
+    assert.ok(messages.includes('一次函数'));
+  }
+});
+
 test('large source records fail explicitly instead of silently dropping evidence', () => {
   throwsCode(() => messagesFor({ action: 'lesson_feedback', lesson_id: id }, {
     student: { name: '示例学生' }, lesson: { content: '证据'.repeat(50000) },
